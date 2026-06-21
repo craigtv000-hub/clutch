@@ -1,10 +1,4 @@
 // espn.js
-// Pulls live scores from ESPN's free, public scoreboard endpoints across ALL
-// the leagues CLUTCH supports, and normalizes them into one simple shape.
-//
-// Each league has: a sport (used for the clutch math) and an ESPN path.
-// To add a league later, add one line here.
-
 const LEAGUES = {
   nba:       { sport: "basketball", path: "basketball/nba",                    label: "NBA" },
   wnba:      { sport: "basketball", path: "basketball/wnba",                   label: "WNBA" },
@@ -20,12 +14,20 @@ const LEAGUES = {
 
 const BASE = "https://site.api.espn.com/apis/site/v2/sports";
 
+function dateWindow() {
+  const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const now = new Date();
+  const y = new Date(now); y.setUTCDate(now.getUTCDate() - 1);
+  const t = new Date(now); t.setUTCDate(now.getUTCDate() + 1);
+  return `${fmt(y)}-${fmt(t)}`;
+}
+
 async function fetchLeague(key) {
   const lg = LEAGUES[key];
   if (!lg) return [];
-  const url = `${BASE}/${lg.path}/scoreboard`;
+  const url = `${BASE}/${lg.path}/scoreboard?dates=${dateWindow()}&limit=100`;
   try {
-    const res = await fetch(url, { headers: { "User-Agent": "clutch/1.0" } });
+    const res = await fetch(url, { headers: { "User-Agent": "clutch/1.0", "Cache-Control": "no-cache" } });
     if (!res.ok) return [];
     const data = await res.json();
     return (data.events || []).map((ev) => normalize(ev, lg, key)).filter(Boolean);
@@ -41,7 +43,7 @@ function normalize(ev, lg, key) {
   const competitors = comp.competitors || [];
   const home = competitors.find((c) => c.homeAway === "home");
   const away = competitors.find((c) => c.homeAway === "away");
-  if (!home || !away) return null;
+  if (!home || !away || !home.team || !away.team) return null;
 
   const status = ev.status || {};
   const type = status.type || {};
@@ -58,10 +60,10 @@ function normalize(ev, lg, key) {
     lg: lg.label,
     sport: lg.sport,
     state,
-    a: away.team.abbreviation,
-    an: away.team.shortDisplayName || away.team.name,
-    h: home.team.abbreviation,
-    hn: home.team.shortDisplayName || home.team.name,
+    a: away.team.abbreviation || away.team.shortDisplayName || "—",
+    an: away.team.shortDisplayName || away.team.name || "",
+    h: home.team.abbreviation || home.team.shortDisplayName || "—",
+    hn: home.team.shortDisplayName || home.team.name || "",
     as: numOr(away.score, 0),
     hs: numOr(home.score, 0),
     period: status.period || 0,
@@ -75,7 +77,6 @@ function normalize(ev, lg, key) {
 function numOr(v, d) { const n = parseInt(v, 10); return isNaN(n) ? d : n; }
 function whereFallback(sport) {
   if (sport === "baseball") return ["MLB.TV", "Local RSN"];
-  if (sport === "soccer") return ["Check listings"];
   return ["Check listings"];
 }
 
