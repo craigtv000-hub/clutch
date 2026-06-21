@@ -18,7 +18,7 @@ function dateWindow() {
   const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
   const now = new Date();
   const y = new Date(now); y.setUTCDate(now.getUTCDate() - 1);
-  const t = new Date(now); t.setUTCDate(now.getUTCDate() + 1);
+  const t = new Date(now); t.setUTCDate(now.getUTCDate() + 2);
   return `${fmt(y)}-${fmt(t)}`;
 }
 
