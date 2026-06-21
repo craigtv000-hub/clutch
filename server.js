@@ -1,12 +1,4 @@
 // server.js
-// The always-on backend. Now with PER-USER settings:
-//   1) Serves the web app (the public/ folder).
-//   2) GET /api/games  -> live games, clutch-scored (the page polls this).
-//   3) POST /api/subscribe -> saves a device's push subscription + its settings.
-//   4) POST /api/settings  -> updates an existing device's settings.
-//   5) Every POLL_MS, checks each live game against EACH subscriber's own
-//      thresholds and pings only the people whose line it crosses.
-
 import express from "express";
 import webpush from "web-push";
 import fs from "fs";
@@ -24,7 +16,6 @@ const PORT = process.env.PORT || 3000;
 const POLL_MS = Number(process.env.POLL_MS || 20000);
 const LEAGUES = (process.env.LEAGUES || "nba,wnba,ncaab,nfl,ncaaf,mlb,nhl,worldcup,epl,mls").split(",");
 
-// ---- web-push setup ----
 const PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
 const PUSH_ENABLED = PUBLIC_KEY && PRIVATE_KEY;
@@ -34,22 +25,19 @@ if (PUSH_ENABLED) {
   console.warn("[push] VAPID keys not set — alerts disabled.");
 }
 
-// ---- persistence: each entry is { subscription, settings } ----
 const SUBS_FILE = path.join(__dirname, "subscriptions.json");
 let subs = [];
 try { subs = JSON.parse(fs.readFileSync(SUBS_FILE, "utf8")); } catch { subs = []; }
 function saveSubs() { try { fs.writeFileSync(SUBS_FILE, JSON.stringify(subs)); } catch {} }
 
-// Fallback settings if a device hasn't set its own yet.
 const DEFAULT_SETTINGS = {
   leagues: { nba:true, wnba:true, ncaab:true, nfl:true, ncaaf:true, mlb:true, nhl:true, worldcup:true, epl:true, mls:true },
   margin: { baseball: 1, basketball: 6, hockey: 1, football: 8, soccer: 1 },
   late:   { baseballInning: 8, basketballSec: 300, hockeySec: 300, footballSec: 300, soccerMin: 70 },
 };
 
-// ---- live cache + per-(device,game) alert tracking ----
 let cache = { updated: null, games: [] };
-const alerted = new Set(); // keys like "<endpoint>::<gameId>"
+const alerted = new Set();
 
 function scoreAll(games) {
   return games.map((g) => ({ ...g, score: clutchScore(g), situation: situationText(g) }));
@@ -60,9 +48,7 @@ async function poll() {
     const raw = await fetchGames(LEAGUES);
     const scored = scoreAll(raw).sort((a, b) => b.score - a.score);
     cache = { updated: new Date().toISOString(), games: scored };
-
     const live = scored.filter((g) => g.state === "in");
-
     for (const entry of subs) {
       const settings = entry.settings || DEFAULT_SETTINGS;
       const endpoint = entry.subscription && entry.subscription.endpoint;
@@ -75,7 +61,6 @@ async function poll() {
         }
       }
     }
-
     const liveIds = new Set(live.map((g) => g.id));
     for (const key of alerted) {
       const gid = key.split("::")[1];
@@ -105,9 +90,19 @@ async function alertOne(subscription, g) {
   }
 }
 
-// ---- API ----
 app.get("/api/games", (req, res) => res.json(cache));
 app.get("/api/vapidPublicKey", (req, res) => res.json({ key: PUBLIC_KEY }));
+
+app.get("/api/debug", (req, res) => {
+  const byLeague = {};
+  for (const g of cache.games) {
+    if (!byLeague[g.lg]) byLeague[g.lg] = { total: 0, live: 0, sample: null };
+    byLeague[g.lg].total++;
+    if (g.state === "in") byLeague[g.lg].live++;
+    if (!byLeague[g.lg].sample) byLeague[g.lg].sample = `${g.a} @ ${g.h} (${g.state}, ${g.startISO})`;
+  }
+  res.json({ updated: cache.updated, leaguesPolled: LEAGUES, totalGames: cache.games.length, byLeague });
+});
 
 app.post("/api/subscribe", (req, res) => {
   const { subscription, settings } = req.body || {};
