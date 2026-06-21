@@ -105,22 +105,44 @@ function upcomingCard(g){
     <div class="where"><span class="eye">▸ Watch</span><div class="nets">${nets}</div><span class="when">${t}</span></div></div>`;
 }
 
+// Is this game today (in the viewer's local time)? Live games always count.
+function isToday(iso){
+  if(!iso) return false;
+  const d=new Date(iso), n=new Date();
+  return d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth() && d.getDate()===n.getDate();
+}
+
+function finalCard(g){
+  const aWin=g.as>g.hs, hWin=g.hs>g.as;
+  return `<div class="card"><div class="chead"><span class="lgtag">${g.lg}</span>
+      <span class="situation" style="color:var(--dimmer)">Final</span></div>
+    <div class="matchup">
+      <div class="trow ${aWin?'':'trail'}"><span class="tabbr">${g.a}</span><span class="tname">${g.an}</span><span class="tscore">${g.as}</span></div>
+      <div class="trow ${hWin?'':'trail'}"><span class="tabbr">${g.h}</span><span class="tname">${g.hn}</span><span class="tscore">${g.hs}</span></div>
+    </div></div>`;
+}
+
 async function refresh(){
   try{
     const r=await fetch('/api/games'); const data=await r.json();
     const exp=expand(settings);
     const games=(data.games||[]).filter(g=>settings.leagues[g.leagueKey]!==false);
-    const live=games.filter(g=>g.state==='in');
+    const live=games.filter(g=>g.state==='in');                       // live is always relevant
     const hot=live.filter(g=>mustWatch(g,exp));
     const watch=live.filter(g=>!mustWatch(g,exp));
-    const soon=games.filter(g=>g.state==='pre').sort((a,b)=>new Date(a.startISO)-new Date(b.startISO)).slice(0,8);
+    const soon=games.filter(g=>g.state==='pre' && isToday(g.startISO)) // today's upcoming only
+      .sort((a,b)=>new Date(a.startISO)-new Date(b.startISO)).slice(0,12);
+    const finals=games.filter(g=>g.state==='post' && isToday(g.startISO)) // today's finished
+      .sort((a,b)=>new Date(b.startISO)-new Date(a.startISO)).slice(0,12);
 
     $('hot').innerHTML=hot.length?hot.map(g=>liveCard(g,true)).join(''):`<div class="quiet">Nothing's crossed into must-watch yet. ${live.length?"We're watching your leagues.":"No live games in your leagues right now."}</div>`;
     $('livenow').innerHTML=watch.length?watch.map(g=>liveCard(g,false)).join(''):`<div class="quiet">—</div>`;
-    $('ondeck').innerHTML=soon.length?soon.map(upcomingCard).join(''):`<div class="quiet">—</div>`;
+    $('ondeck').innerHTML=soon.length?soon.map(upcomingCard).join(''):`<div class="quiet">Nothing else scheduled today.</div>`;
+    $('finals').innerHTML=finals.length?finals.map(finalCard).join(''):`<div class="quiet">—</div>`;
     $('hotct').textContent=hot.length?hot.length+' live':'';
     $('livect').textContent=watch.length||'';
     $('deckct').textContent=soon.length||'';
+    $('finalct').textContent=finals.length||'';
     $('status').textContent=`${live.length} live · ${hot.length} must-watch · ${soon.length} soon`;
     $('updated').textContent=data.updated?new Date(data.updated).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
 
@@ -129,8 +151,10 @@ async function refresh(){
       v.innerHTML=`<div class="big">⚡</div><div><h2>Turn on ${t.a} @ ${t.h} — now</h2><p>${t.situation} · ${(t.where||[]).join(' / ')}. Clutch ${t.score}.</p></div>`;
     }else if(live.length){
       v.innerHTML=`<div class="big">👀</div><div><h2>${live.length} game${live.length>1?'s':''} live — none at your bar yet</h2><p>We'll ping you the second one hits it. Hottest now: ${live[0].a} @ ${live[0].h}.</p></div>`;
+    }else if(soon.length){
+      v.innerHTML=`<div class="big">🕐</div><div><h2>No live games yet today</h2><p>Next up: ${soon[0].a} @ ${soon[0].h}.</p></div>`;
     }else{
-      v.innerHTML=`<div class="big">😴</div><div><h2>No live games in your leagues</h2><p>${soon.length?`Next up: ${soon[0].a} @ ${soon[0].h}.`:'Check back when games start.'}</p></div>`;
+      v.innerHTML=`<div class="big">😴</div><div><h2>No games in your leagues today</h2><p>Check back when your leagues are in season and playing.</p></div>`;
     }
   }catch(e){ $('status').textContent='reconnecting…'; }
 }
