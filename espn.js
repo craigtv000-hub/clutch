@@ -1,24 +1,25 @@
 // espn.js
-// Pulls live scores from ESPN's free, public (undocumented) scoreboard endpoints
-// and normalizes every sport into one simple shape the rest of the app understands.
+// Pulls live scores from ESPN's free, public scoreboard endpoints across ALL
+// the leagues CLUTCH supports, and normalizes them into one simple shape.
 //
-// These endpoints are the same ones espn.com calls in your browser. They're free,
-// need no key, and return scores, game clock, and broadcast (where-to-watch) info.
-// The tradeoff: there's no contract, so ESPN could change them. That's the accepted
-// risk of a $0 feed — see the launch guide for paid alternatives.
+// Each league has: a sport (used for the clutch math) and an ESPN path.
+// To add a league later, add one line here.
 
 const LEAGUES = {
-  baseball:  { sport: "baseball",   path: "baseball/mlb",          label: "MLB" },
-  basketball:{ sport: "basketball", path: "basketball/nba",        label: "NBA" },
-  wnba:      { sport: "basketball", path: "basketball/wnba",       label: "WNBA" },
-  hockey:    { sport: "hockey",     path: "hockey/nhl",            label: "NHL" },
-  football:  { sport: "football",   path: "football/nfl",          label: "NFL" },
-  soccer:    { sport: "soccer",     path: "soccer/fifa.world",     label: "WORLD CUP" },
+  nba:       { sport: "basketball", path: "basketball/nba",                    label: "NBA" },
+  wnba:      { sport: "basketball", path: "basketball/wnba",                   label: "WNBA" },
+  ncaab:     { sport: "basketball", path: "basketball/mens-college-basketball",label: "CBB" },
+  nfl:       { sport: "football",   path: "football/nfl",                      label: "NFL" },
+  ncaaf:     { sport: "football",   path: "football/college-football",         label: "CFB" },
+  mlb:       { sport: "baseball",   path: "baseball/mlb",                      label: "MLB" },
+  nhl:       { sport: "hockey",     path: "hockey/nhl",                        label: "NHL" },
+  worldcup:  { sport: "soccer",     path: "soccer/fifa.world",                 label: "WORLD CUP" },
+  epl:       { sport: "soccer",     path: "soccer/eng.1",                      label: "EPL" },
+  mls:       { sport: "soccer",     path: "soccer/usa.1",                      label: "MLS" },
 };
 
 const BASE = "https://site.api.espn.com/apis/site/v2/sports";
 
-// Fetch one league's scoreboard and return normalized games.
 async function fetchLeague(key) {
   const lg = LEAGUES[key];
   if (!lg) return [];
@@ -34,7 +35,6 @@ async function fetchLeague(key) {
   }
 }
 
-// Turn one ESPN event into our clean game object.
 function normalize(ev, lg, key) {
   const comp = ev.competitions && ev.competitions[0];
   if (!comp) return null;
@@ -45,14 +45,11 @@ function normalize(ev, lg, key) {
 
   const status = ev.status || {};
   const type = status.type || {};
-  const state = type.state; // "pre" | "in" | "post"
+  const state = type.state;
 
-  // Where to watch: ESPN gives broadcast names in a few possible spots.
   const nets = [];
   (comp.broadcasts || []).forEach((b) => (b.names || []).forEach((n) => nets.push(n)));
-  (comp.geoBroadcasts || []).forEach((b) => {
-    if (b.media && b.media.shortName) nets.push(b.media.shortName);
-  });
+  (comp.geoBroadcasts || []).forEach((b) => { if (b.media && b.media.shortName) nets.push(b.media.shortName); });
   const where = [...new Set(nets)].slice(0, 4);
 
   return {
@@ -60,7 +57,7 @@ function normalize(ev, lg, key) {
     leagueKey: key,
     lg: lg.label,
     sport: lg.sport,
-    state, // pre / in / post
+    state,
     a: away.team.abbreviation,
     an: away.team.shortDisplayName || away.team.name,
     h: home.team.abbreviation,
@@ -78,11 +75,10 @@ function normalize(ev, lg, key) {
 function numOr(v, d) { const n = parseInt(v, 10); return isNaN(n) ? d : n; }
 function whereFallback(sport) {
   if (sport === "baseball") return ["MLB.TV", "Local RSN"];
-  if (sport === "soccer") return ["FS1", "Telemundo"];
+  if (sport === "soccer") return ["Check listings"];
   return ["Check listings"];
 }
 
-// Fetch several leagues at once.
 export async function fetchGames(leagueKeys) {
   const results = await Promise.all(leagueKeys.map(fetchLeague));
   return results.flat();

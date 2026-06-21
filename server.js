@@ -1,13 +1,11 @@
 // server.js
-// The always-on backend. It does four things:
+// The always-on backend. Now with PER-USER settings:
 //   1) Serves the web app (the public/ folder).
 //   2) GET /api/games  -> live games, clutch-scored (the page polls this).
-//   3) POST /api/subscribe -> saves a phone/browser's push subscription.
-//   4) Every POLL_MS, re-checks every live game and PUSHES an alert the moment
-//      one newly crosses into must-watch territory.
-//
-// Subscriptions are stored in a simple JSON file so they survive restarts.
-// (For real scale, swap this for a database — noted in the launch guide.)
+//   3) POST /api/subscribe -> saves a device's push subscription + its settings.
+//   4) POST /api/settings  -> updates an existing device's settings.
+//   5) Every POLL_MS, checks each live game against EACH subscriber's own
+//      thresholds and pings only the people whose line it crosses.
 
 import express from "express";
 import webpush from "web-push";
@@ -23,85 +21,88 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
-const POLL_MS = Number(process.env.POLL_MS || 20000); // every 20s
-const LEAGUES = (process.env.LEAGUES || "baseball,basketball,wnba,hockey,football,soccer").split(",");
+const POLL_MS = Number(process.env.POLL_MS || 20000);
+const LEAGUES = (process.env.LEAGUES || "nba,wnba,ncaab,nfl,ncaaf,mlb,nhl,worldcup,epl,mls").split(",");
 
-// ---- web-push setup (VAPID keys come from env; generate with `npm run keys`) ----
+// ---- web-push setup ----
 const PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
 const PUSH_ENABLED = PUBLIC_KEY && PRIVATE_KEY;
 if (PUSH_ENABLED) {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || "mailto:you@example.com",
-    PUBLIC_KEY,
-    PRIVATE_KEY
-  );
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:you@example.com", PUBLIC_KEY, PRIVATE_KEY);
 } else {
-  console.warn("[push] VAPID keys not set — alerts disabled. Run `npm run keys` and set env vars.");
+  console.warn("[push] VAPID keys not set — alerts disabled.");
 }
 
-// ---- simple persistence ----
+// ---- persistence: each entry is { subscription, settings } ----
 const SUBS_FILE = path.join(__dirname, "subscriptions.json");
 let subs = [];
 try { subs = JSON.parse(fs.readFileSync(SUBS_FILE, "utf8")); } catch { subs = []; }
 function saveSubs() { try { fs.writeFileSync(SUBS_FILE, JSON.stringify(subs)); } catch {} }
 
-// Default "must-watch" thresholds (a user could override these per device later).
+// Fallback settings if a device hasn't set its own yet.
 const DEFAULT_SETTINGS = {
-  sports: { baseball: true, basketball: true, hockey: true, football: true, soccer: true },
+  leagues: { nba:true, wnba:true, ncaab:true, nfl:true, ncaaf:true, mlb:true, nhl:true, worldcup:true, epl:true, mls:true },
   margin: { baseball: 1, basketball: 6, hockey: 1, football: 8, soccer: 1 },
   late:   { baseballInning: 8, basketballSec: 300, hockeySec: 300, footballSec: 300, soccerMin: 70 },
 };
 
-// ---- live cache + alert tracking ----
+// ---- live cache + per-(device,game) alert tracking ----
 let cache = { updated: null, games: [] };
-const alreadyAlerted = new Set(); // game ids we've already pinged this run
+const alerted = new Set(); // keys like "<endpoint>::<gameId>"
 
-function scoreAll(games, settings) {
-  return games.map((g) => ({
-    ...g,
-    score: clutchScore(g),
-    must: isMustWatch(g, settings),
-    situation: situationText(g),
-  }));
+function scoreAll(games) {
+  return games.map((g) => ({ ...g, score: clutchScore(g), situation: situationText(g) }));
 }
 
 async function poll() {
   try {
     const raw = await fetchGames(LEAGUES);
-    const scored = scoreAll(raw, DEFAULT_SETTINGS).sort((a, b) => b.score - a.score);
+    const scored = scoreAll(raw).sort((a, b) => b.score - a.score);
     cache = { updated: new Date().toISOString(), games: scored };
 
-    // find games that JUST became must-watch and alert
-    for (const g of scored) {
-      if (g.must && !alreadyAlerted.has(g.id)) {
-        alreadyAlerted.add(g.id);
-        await alert(g);
+    const live = scored.filter((g) => g.state === "in");
+
+    for (const entry of subs) {
+      const settings = entry.settings || DEFAULT_SETTINGS;
+      const endpoint = entry.subscription && entry.subscription.endpoint;
+      if (!endpoint) continue;
+      for (const g of live) {
+        const key = endpoint + "::" + g.id;
+        if (isMustWatch(g, settings) && !alerted.has(key)) {
+          alerted.add(key);
+          await alertOne(entry.subscription, g);
+        }
       }
-      // once a game ends, forget it so a future game with same id is fine
-      if (g.state === "post") alreadyAlerted.delete(g.id);
+    }
+
+    const liveIds = new Set(live.map((g) => g.id));
+    for (const key of alerted) {
+      const gid = key.split("::")[1];
+      if (!liveIds.has(gid)) alerted.delete(key);
     }
   } catch (err) {
     console.error("[poll] error:", err.message);
   }
 }
 
-async function alert(g) {
-  console.log(`[ALERT] ${g.a} @ ${g.h} — ${g.situation} (clutch ${g.score})`);
-  if (!PUSH_ENABLED || subs.length === 0) return;
+async function alertOne(subscription, g) {
+  console.log(`[ALERT] -> ${g.a} @ ${g.h} — ${situationText(g)} (clutch ${clutchScore(g)})`);
+  if (!PUSH_ENABLED) return;
   const payload = JSON.stringify({
     title: `⚡ Turn it on — ${g.a} @ ${g.h}`,
-    body: `${g.situation} · ${g.where.join(" / ")}`,
+    body: `${situationText(g)} · ${g.where.join(" / ")}`,
     tag: g.id,
     url: "/",
   });
-  const dead = [];
-  await Promise.all(subs.map(async (s, i) => {
-    try { await webpush.sendNotification(s, payload); }
-    catch (e) { if (e.statusCode === 410 || e.statusCode === 404) dead.push(i); }
-  }));
-  // prune expired subscriptions
-  if (dead.length) { subs = subs.filter((_, i) => !dead.includes(i)); saveSubs(); }
+  try {
+    await webpush.sendNotification(subscription, payload);
+  } catch (e) {
+    if (e.statusCode === 410 || e.statusCode === 404) {
+      subs = subs.filter((s) => s.subscription.endpoint !== subscription.endpoint);
+      saveSubs();
+    }
+  }
 }
 
 // ---- API ----
@@ -109,17 +110,27 @@ app.get("/api/games", (req, res) => res.json(cache));
 app.get("/api/vapidPublicKey", (req, res) => res.json({ key: PUBLIC_KEY }));
 
 app.post("/api/subscribe", (req, res) => {
-  const sub = req.body;
-  if (!sub || !sub.endpoint) return res.status(400).json({ ok: false });
-  if (!subs.find((s) => s.endpoint === sub.endpoint)) { subs.push(sub); saveSubs(); }
+  const { subscription, settings } = req.body || {};
+  if (!subscription || !subscription.endpoint) return res.status(400).json({ ok: false });
+  const existing = subs.find((s) => s.subscription.endpoint === subscription.endpoint);
+  if (existing) { existing.subscription = subscription; if (settings) existing.settings = settings; }
+  else { subs.push({ subscription, settings: settings || DEFAULT_SETTINGS }); }
+  saveSubs();
   res.json({ ok: true });
 });
 
-// Optional: let a device send a test push to itself
+app.post("/api/settings", (req, res) => {
+  const { endpoint, settings } = req.body || {};
+  if (!endpoint || !settings) return res.status(400).json({ ok: false });
+  const entry = subs.find((s) => s.subscription.endpoint === endpoint);
+  if (entry) { entry.settings = settings; saveSubs(); return res.json({ ok: true }); }
+  res.json({ ok: false, reason: "not subscribed yet" });
+});
+
 app.post("/api/test-alert", async (req, res) => {
   if (!PUSH_ENABLED) return res.json({ ok: false, reason: "push disabled" });
   const payload = JSON.stringify({ title: "⚡ CLUTCH test", body: "Alerts are working.", url: "/" });
-  await Promise.all(subs.map((s) => webpush.sendNotification(s, payload).catch(() => {})));
+  await Promise.all(subs.map((s) => webpush.sendNotification(s.subscription, payload).catch(() => {})));
   res.json({ ok: true, sent: subs.length });
 });
 

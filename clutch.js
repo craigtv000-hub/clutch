@@ -58,7 +58,8 @@ export function clutchScore(g) {
 //              late:{ baseballInning:8, basketballSec:300, ... } }
 export function isMustWatch(g, settings) {
   if (g.state !== "in") return false;
-  if (settings.sports && settings.sports[g.sport] === false) return false;
+  // Gate by the specific league the user toggled (nba, nfl, epl, …).
+  if (settings.leagues && settings.leagues[g.leagueKey] === false) return false;
 
   const m = Math.abs(g.as - g.hs);
   const marginLimit = (settings.margin && settings.margin[g.sport]) ?? defaultMargin(g.sport);
