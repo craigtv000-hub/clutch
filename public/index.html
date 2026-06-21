@@ -49,7 +49,6 @@
   .quiet{padding:14px;color:var(--dimmer);font-size:12px;text-align:center;border:1px dashed var(--line);border-radius:13px;margin-bottom:11px}
   footer{text-align:center;padding:30px 0 0;color:var(--dimmer);font-size:10.5px;line-height:1.9}
   footer b{color:var(--dim)}
-  /* settings sheet */
   .sheet{position:fixed;inset:0;background:rgba(4,6,9,.72);z-index:80;display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
   .sheet.open{display:flex}
   .sheetin{background:var(--card);border:1px solid var(--line);border-radius:18px 18px 0 0;width:100%;max-width:680px;padding:20px 18px max(30px,env(safe-area-inset-bottom));max-height:88vh;overflow:auto;animation:up .3s cubic-bezier(.2,1,.3,1)}
@@ -92,23 +91,20 @@
   <div id="hot"></div>
   <div class="sectlabel">Live now <span class="ct" id="livect"></span></div>
   <div id="livenow"></div>
-  <div class="sectlabel">Starting soon <span class="ct" id="deckct"></span></div>
+  <div class="sectlabel">Upcoming <span class="ct" id="deckct"></span></div>
   <div id="ondeck"></div>
-  <div class="sectlabel">Final — today <span class="ct" id="finalct"></span></div>
+  <div class="sectlabel">Final <span class="ct" id="finalct"></span></div>
   <div id="finals"></div>
 </main>
 
 <footer>
-  <b>CLUTCH</b> — it watches every live game so you don't have to<br>
-  set your taste in ⚙ · turn on 🔔 to get pinged when a game gets good
+  <b>CLUTCH</b> — every game in your leagues, live · we ping you when one gets good
 </footer>
 
-<!-- SETTINGS -->
 <div class="sheet" id="sheet">
   <div class="sheetin">
     <div class="shead"><h2>Your clutch settings</h2><button class="x" id="closex">✕</button></div>
-    <div class="shint">These are <b>yours</b> — saved on this device. CLUTCH stays silent until a live game crosses your line, then pings you with where to watch.</div>
-
+    <div class="shint">These are <b>yours</b> — saved on this device. Pick your leagues and when a game counts as must-watch.</div>
     <div class="setrow">
       <h3>Leagues I want to see <span style="float:right;display:flex;gap:6px"><button class="mini" id="allBtn">All</button><button class="mini" id="noneBtn">None</button></span></h3>
       <p>Only these leagues get shown and watched.</p>
@@ -124,7 +120,6 @@
       <p>…and the game is this deep into the final stretch.</p>
       <div class="seg" id="lateSeg"></div>
     </div>
-
     <div class="savebar"><button class="savebtn" id="saveBtn">Save my settings</button></div>
   </div>
 </div>
