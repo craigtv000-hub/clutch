@@ -1,0 +1,18 @@
+{
+  "name": "clutch",
+  "version": "1.0.0",
+  "description": "CLUTCH — alerts you the moment a live game gets good, and tells you where to watch.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "keys": "node generate-keys.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "web-push": "^3.6.7"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
