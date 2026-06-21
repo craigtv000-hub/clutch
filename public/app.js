@@ -1,10 +1,6 @@
-// app.js — runs in the browser.
-// Polls YOUR server, renders the board using THIS DEVICE'S settings, and lets
-// each person pick which LEAGUES they want and their own must-watch thresholds.
-
+// app.js
 const $ = (id) => document.getElementById(id);
 
-// ---------- the leagues a user can choose ----------
 const LEAGUE_LIST = [
   ["nba", "🏀 NBA"],
   ["wnba", "🏀 WNBA"],
@@ -37,14 +33,13 @@ function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem("clutch_settings") || "{}");
     const s = Object.assign({}, DEFAULT, saved);
-    s.leagues = Object.assign(defaultLeagues(), saved.leagues || {}); // ensure all keys exist
+    s.leagues = Object.assign(defaultLeagues(), saved.leagues || {});
     return s;
   } catch { return { ...DEFAULT, leagues: defaultLeagues() }; }
 }
 function saveSettings(s) { localStorage.setItem("clutch_settings", JSON.stringify(s)); }
 let settings = loadSettings();
 
-// Expand friendly presets into the concrete thresholds the server understands.
 function expand(s) {
   const m = MARGIN_PRESETS[s.marginPick] || MARGIN_PRESETS.normal;
   const l = LATE_PRESETS[s.latePick] || LATE_PRESETS.late;
@@ -55,7 +50,6 @@ function expand(s) {
   };
 }
 
-// ---------- client-side "must-watch" (mirrors clutch.js, for display) ----------
 function clockToSeconds(s){ if(!s||!String(s).includes(":"))return 0; const [m,sec]=String(s).split(":").map(n=>parseInt(n,10)); return (m||0)*60+(sec||0); }
 function soccerMinute(clock,detail,period){ const x=String(clock||detail||"").match(/(\d+)/); return x?parseInt(x[1],10):(period>=2?60:20); }
 function mustWatch(g, exp) {
@@ -73,7 +67,6 @@ function mustWatch(g, exp) {
   return false;
 }
 
-// ---------- rendering ----------
 function heatColor(s){return s>=80?"var(--hot3)":s>=60?"var(--hot2)":s>=40?"var(--hot1)":"var(--dimmer)";}
 function pillStyle(s){return s>=80?"background:rgba(255,58,58,.16);color:#ff7a7a":s>=60?"background:rgba(255,122,47,.16);color:#ffb07a":s>=40?"background:rgba(255,210,74,.14);color:#ffe08a":"background:var(--card2);color:var(--dim)";}
 
@@ -94,32 +87,34 @@ function liveCard(g, must){
 }
 function upcomingCard(g){
   const nets=(g.where||[]).map(n=>`<span class="net">${n}</span>`).join("");
-  const t=new Date(g.startISO).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  const d=new Date(g.startISO);
+  const day=d.toLocaleDateString('en-US',{weekday:'short'});
+  const t=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
   return `<div class="card"><div class="chead"><span class="lgtag">${g.lg}</span>
-      <span class="situation" style="color:var(--dim)">Scheduled</span>
-      <span class="clutchpill" style="background:var(--card2);color:var(--dim)">${t}</span></div>
+      <span class="situation" style="color:var(--dim)">${day} ${t}</span></div>
     <div class="matchup">
       <div class="trow"><span class="tabbr">${g.a}</span><span class="tname">${g.an}</span><span class="tscore" style="color:var(--dimmer);font-size:15px">—</span></div>
       <div class="trow"><span class="tabbr">${g.h}</span><span class="tname">${g.hn}</span><span class="tscore" style="color:var(--dimmer);font-size:15px">—</span></div>
     </div>
-    <div class="where"><span class="eye">▸ Watch</span><div class="nets">${nets}</div><span class="when">${t}</span></div></div>`;
+    <div class="where"><span class="eye">▸ Watch</span><div class="nets">${nets}</div><span class="when">${day} ${t}</span></div></div>`;
 }
-
-// Is this game today (in the viewer's local time)? Live games always count.
-function isToday(iso){
-  if(!iso) return false;
-  const d=new Date(iso), n=new Date();
-  return d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth() && d.getDate()===n.getDate();
-}
-
 function finalCard(g){
   const aWin=g.as>g.hs, hWin=g.hs>g.as;
+  const d=new Date(g.startISO);
+  const day=d.toLocaleDateString('en-US',{weekday:'short'});
   return `<div class="card"><div class="chead"><span class="lgtag">${g.lg}</span>
-      <span class="situation" style="color:var(--dimmer)">Final</span></div>
+      <span class="situation" style="color:var(--dimmer)">Final · ${day}</span></div>
     <div class="matchup">
       <div class="trow ${aWin?'':'trail'}"><span class="tabbr">${g.a}</span><span class="tname">${g.an}</span><span class="tscore">${g.as}</span></div>
       <div class="trow ${hWin?'':'trail'}"><span class="tabbr">${g.h}</span><span class="tname">${g.hn}</span><span class="tscore">${g.hs}</span></div>
     </div></div>`;
+}
+
+function inWindow(iso){
+  if(!iso) return false;
+  const t=new Date(iso).getTime(); if(isNaN(t)) return false;
+  const now=Date.now();
+  return t >= now - 36*3600*1000 && t <= now + 60*3600*1000;
 }
 
 async function refresh(){
@@ -127,39 +122,37 @@ async function refresh(){
     const r=await fetch('/api/games'); const data=await r.json();
     const exp=expand(settings);
     const games=(data.games||[]).filter(g=>settings.leagues[g.leagueKey]!==false);
-    const live=games.filter(g=>g.state==='in');                       // live is always relevant
-    const hot=live.filter(g=>mustWatch(g,exp));
-    const watch=live.filter(g=>!mustWatch(g,exp));
-    const soon=games.filter(g=>g.state==='pre' && isToday(g.startISO)) // today's upcoming only
-      .sort((a,b)=>new Date(a.startISO)-new Date(b.startISO)).slice(0,12);
-    const finals=games.filter(g=>g.state==='post' && isToday(g.startISO)) // today's finished
-      .sort((a,b)=>new Date(b.startISO)-new Date(a.startISO)).slice(0,12);
 
-    $('hot').innerHTML=hot.length?hot.map(g=>liveCard(g,true)).join(''):`<div class="quiet">Nothing's crossed into must-watch yet. ${live.length?"We're watching your leagues.":"No live games in your leagues right now."}</div>`;
-    $('livenow').innerHTML=watch.length?watch.map(g=>liveCard(g,false)).join(''):`<div class="quiet">—</div>`;
-    $('ondeck').innerHTML=soon.length?soon.map(upcomingCard).join(''):`<div class="quiet">Nothing else scheduled today.</div>`;
+    const live=games.filter(g=>g.state==='in').sort((a,b)=>b.score-a.score);
+    const hot=live.filter(g=>mustWatch(g,exp));
+    const upcoming=games.filter(g=>g.state==='pre' && inWindow(g.startISO)).sort((a,b)=>new Date(a.startISO)-new Date(b.startISO));
+    const finals=games.filter(g=>g.state==='post' && inWindow(g.startISO)).sort((a,b)=>new Date(b.startISO)-new Date(a.startISO));
+
+    $('hot').innerHTML=hot.length?hot.map(g=>liveCard(g,true)).join(''):`<div class="quiet">Nothing's crossed into must-watch yet — we'll ping you the moment one does.</div>`;
+    $('livenow').innerHTML=live.length?live.map(g=>liveCard(g,mustWatch(g,exp))).join(''):`<div class="quiet">No games live right now.</div>`;
+    $('ondeck').innerHTML=upcoming.length?upcoming.map(upcomingCard).join(''):`<div class="quiet">Nothing scheduled in your leagues.</div>`;
     $('finals').innerHTML=finals.length?finals.map(finalCard).join(''):`<div class="quiet">—</div>`;
-    $('hotct').textContent=hot.length?hot.length+' live':'';
-    $('livect').textContent=watch.length||'';
-    $('deckct').textContent=soon.length||'';
+
+    $('hotct').textContent=hot.length||'';
+    $('livect').textContent=live.length||'';
+    $('deckct').textContent=upcoming.length||'';
     $('finalct').textContent=finals.length||'';
-    $('status').textContent=`${live.length} live · ${hot.length} must-watch · ${soon.length} soon`;
+    $('status').textContent=`${live.length} live · ${upcoming.length} upcoming · ${finals.length} final`;
     $('updated').textContent=data.updated?new Date(data.updated).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
 
     const v=$('verdict');
     if(hot.length){const t=hot[0];
       v.innerHTML=`<div class="big">⚡</div><div><h2>Turn on ${t.a} @ ${t.h} — now</h2><p>${t.situation} · ${(t.where||[]).join(' / ')}. Clutch ${t.score}.</p></div>`;
-    }else if(live.length){
-      v.innerHTML=`<div class="big">👀</div><div><h2>${live.length} game${live.length>1?'s':''} live — none at your bar yet</h2><p>We'll ping you the second one hits it. Hottest now: ${live[0].a} @ ${live[0].h}.</p></div>`;
-    }else if(soon.length){
-      v.innerHTML=`<div class="big">🕐</div><div><h2>No live games yet today</h2><p>Next up: ${soon[0].a} @ ${soon[0].h}.</p></div>`;
+    }else if(live.length){const t=live[0];
+      v.innerHTML=`<div class="big">👀</div><div><h2>${live.length} game${live.length>1?'s':''} live right now</h2><p>Hottest: ${t.a} @ ${t.h} (${t.situation}). We'll ping you when one gets close late.</p></div>`;
+    }else if(upcoming.length){const t=upcoming[0];
+      v.innerHTML=`<div class="big">🕐</div><div><h2>No games live yet</h2><p>Next up: ${t.a} @ ${t.h} at ${new Date(t.startISO).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}.</p></div>`;
     }else{
-      v.innerHTML=`<div class="big">😴</div><div><h2>No games in your leagues today</h2><p>Check back when your leagues are in season and playing.</p></div>`;
+      v.innerHTML=`<div class="big">😴</div><div><h2>No games in your leagues right now</h2><p>Open ⚙ to add more leagues, or check back later.</p></div>`;
     }
   }catch(e){ $('status').textContent='reconnecting…'; }
 }
 
-// ---------- settings UI ----------
 function buildSettingsUI(){
   const lg=$('leagueSeg'); lg.innerHTML='';
   LEAGUE_LIST.forEach(([k,label])=>{
@@ -202,7 +195,6 @@ $('saveBtn').onclick=async ()=>{
   }catch{}
 };
 
-// ---------- push notifications ----------
 function urlB64ToUint8(base64){const pad='='.repeat((4-base64.length%4)%4);const b=(base64+pad).replace(/-/g,'+').replace(/_/g,'/');const raw=atob(b);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));}
 async function enableAlerts(){
   try{
