@@ -80,9 +80,38 @@ function whereFallback(sport) {
   return ["Check listings"];
 }
 
+async function fetchLeagueGames(key) { return fetchLeague(key); }
 export async function fetchGames(leagueKeys) {
   const results = await Promise.all(leagueKeys.map(fetchLeague));
   return results.flat();
+}
+
+async function fetchTeamList(key) {
+  const lg = LEAGUES[key];
+  if (!lg) return [];
+  const url = `${BASE}/${lg.path}/teams?limit=1000`;
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": "clutch/1.0" } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const teams = (((data.sports || [])[0] || {}).leagues || [])[0]?.teams || [];
+    return teams.map((t) => ({
+      abbr: t.team.abbreviation || t.team.shortDisplayName,
+      name: t.team.displayName || t.team.name,
+    })).filter((t) => t.abbr);
+  } catch (err) {
+    console.error(`[espn] ${key} teams fetch failed:`, err.message);
+    return [];
+  }
+}
+
+export async function fetchTeams(leagueKeys) {
+  const out = {};
+  await Promise.all(leagueKeys.map(async (k) => {
+    const list = await fetchTeamList(k);
+    if (list.length) out[k] = list.sort((a, b) => a.name.localeCompare(b.name));
+  }));
+  return out;
 }
 
 export { LEAGUES };
