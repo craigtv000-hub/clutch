@@ -4,7 +4,7 @@ import webpush from "web-push";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { fetchGames } from "./espn.js";
+import { fetchGames, fetchTeams } from "./espn.js";
 import { clutchScore, isMustWatch, situationText } from "./clutch.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,12 +32,25 @@ function saveSubs() { try { fs.writeFileSync(SUBS_FILE, JSON.stringify(subs)); }
 
 const DEFAULT_SETTINGS = {
   leagues: { nba:true, wnba:true, ncaab:true, nfl:true, ncaaf:true, mlb:true, nhl:true, worldcup:true, epl:true, mls:true },
+  teamMode: "all", teams: {},
   margin: { baseball: 1, basketball: 6, hockey: 1, football: 8, soccer: 1 },
   late:   { baseballInning: 8, basketballSec: 300, hockeySec: 300, footballSec: 300, soccerMin: 70 },
 };
 
 let cache = { updated: null, games: [] };
 const alerted = new Set();
+
+let teamsCache = { updated: null, teams: {} };
+async function refreshTeams() {
+  try { teamsCache = { updated: new Date().toISOString(), teams: await fetchTeams(LEAGUES) }; }
+  catch (e) { console.error("[teams] refresh failed:", e.message); }
+}
+
+function involvesFollowedTeam(g, settings) {
+  if (settings.teamMode !== "mine") return true;
+  const t = settings.teams || {};
+  return !!(t[`${g.leagueKey}:${g.a}`] || t[`${g.leagueKey}:${g.h}`]);
+}
 
 function scoreAll(games) {
   return games.map((g) => ({ ...g, score: clutchScore(g), situation: situationText(g) }));
@@ -55,7 +68,7 @@ async function poll() {
       if (!endpoint) continue;
       for (const g of live) {
         const key = endpoint + "::" + g.id;
-        if (isMustWatch(g, settings) && !alerted.has(key)) {
+        if (isMustWatch(g, settings) && involvesFollowedTeam(g, settings) && !alerted.has(key)) {
           alerted.add(key);
           await alertOne(entry.subscription, g);
         }
@@ -91,6 +104,7 @@ async function alertOne(subscription, g) {
 }
 
 app.get("/api/games", (req, res) => res.json(cache));
+app.get("/api/teams", (req, res) => res.json(teamsCache));
 app.get("/api/vapidPublicKey", (req, res) => res.json({ key: PUBLIC_KEY }));
 
 app.get("/api/debug", (req, res) => {
@@ -101,7 +115,7 @@ app.get("/api/debug", (req, res) => {
     if (g.state === "in") byLeague[g.lg].live++;
     if (!byLeague[g.lg].sample) byLeague[g.lg].sample = `${g.a} @ ${g.h} (${g.state}, ${g.startISO})`;
   }
-  res.json({ updated: cache.updated, leaguesPolled: LEAGUES, totalGames: cache.games.length, byLeague });
+  res.json({ updated: cache.updated, leaguesPolled: LEAGUES, totalGames: cache.games.length, teams: Object.keys(teamsCache.teams).length, byLeague });
 });
 
 app.post("/api/subscribe", (req, res) => {
@@ -134,4 +148,6 @@ app.listen(PORT, () => {
   console.log(`Leagues: ${LEAGUES.join(", ")} · polling every ${POLL_MS / 1000}s`);
   poll();
   setInterval(poll, POLL_MS);
+  refreshTeams();
+  setInterval(refreshTeams, 24 * 3600 * 1000);
 });
