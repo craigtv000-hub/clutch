@@ -23,6 +23,9 @@
   .statusbar{display:flex;align-items:center;gap:7px;margin-top:11px;font-size:11px;color:var(--dimmer)}
   .scan{width:7px;height:7px;border-radius:50%;background:var(--live);animation:blink 1.6s infinite}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+  .modebar{display:flex;gap:6px;margin:6px 0 2px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:4px}
+  .modebtn{flex:1;background:transparent;border:none;color:var(--dim);font:inherit;font-size:13px;font-weight:800;padding:9px;border-radius:8px;cursor:pointer}
+  .modebtn.on{background:var(--text);color:var(--bg)}
   .verdict{background:linear-gradient(120deg,#15191f,#12161c);border:1px solid var(--line);border-radius:15px;padding:16px;margin:6px 0 4px;display:flex;gap:13px;align-items:center}
   .verdict .big{font-size:30px}.verdict h2{font-size:15px;font-weight:800;margin-bottom:3px}.verdict p{font-size:12px;color:var(--dim);line-height:1.45}
   .sectlabel{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--dimmer);font-weight:700;margin:22px 2px 11px;display:flex;align-items:center;gap:8px}
@@ -66,6 +69,10 @@
   .savebar{position:sticky;bottom:0;background:var(--card);padding-top:14px;margin-top:6px}
   .savebtn{width:100%;background:var(--live);color:#04140c;font-weight:800;font-size:14px;border:none;padding:13px;border-radius:11px;cursor:pointer}
   .mini{background:var(--card2);border:1px solid var(--line);color:var(--dim);font:inherit;font-size:10px;font-weight:700;padding:3px 9px;border-radius:6px;cursor:pointer}
+  .teamsearch{width:100%;background:var(--card2);border:1px solid var(--line);color:var(--text);font:inherit;font-size:13px;padding:10px 12px;border-radius:9px;margin-bottom:10px}
+  .teamlistbox{max-height:260px;overflow:auto}
+  .teamleague{font-size:10px;font-weight:800;letter-spacing:1px;color:var(--dimmer);text-transform:uppercase;margin:12px 0 7px}
+  .teamchip{min-width:auto;flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -86,6 +93,7 @@
 </header>
 
 <main>
+  <div class="modebar" id="modeToggle"></div>
   <div class="verdict" id="verdict"></div>
   <div class="sectlabel">🔥 Must-watch now <span class="ct" id="hotct"></span></div>
   <div id="hot"></div>
@@ -104,11 +112,17 @@
 <div class="sheet" id="sheet">
   <div class="sheetin">
     <div class="shead"><h2>Your clutch settings</h2><button class="x" id="closex">✕</button></div>
-    <div class="shint">These are <b>yours</b> — saved on this device. Pick your leagues and when a game counts as must-watch.</div>
+    <div class="shint">These are <b>yours</b> — saved on this device. Pick your leagues, follow teams, and set when a game counts as must-watch.</div>
     <div class="setrow">
       <h3>Leagues I want to see <span style="float:right;display:flex;gap:6px"><button class="mini" id="allBtn">All</button><button class="mini" id="noneBtn">None</button></span></h3>
       <p>Only these leagues get shown and watched.</p>
       <div class="seg" id="leagueSeg"></div>
+    </div>
+    <div class="setrow">
+      <h3>Follow specific teams</h3>
+      <p>Tap teams to follow. Flip "My teams" at the top of the screen to see/alert only your teams.</p>
+      <input id="teamSearch" class="teamsearch" placeholder="Search teams…" autocapitalize="off" autocorrect="off">
+      <div id="teamList" class="teamlistbox"></div>
     </div>
     <div class="setrow">
       <h3>How close</h3>
