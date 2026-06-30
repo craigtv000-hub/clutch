@@ -284,22 +284,50 @@ $('saveBtn').onclick=async ()=>{
   pushSettings();
 };
 
+// ---------- push notifications (self-healing + honest status) ----------
 function urlB64ToUint8(base64){const pad='='.repeat((4-base64.length%4)%4);const b=(base64+pad).replace(/-/g,'+').replace(/_/g,'/');const raw=atob(b);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));}
+function setBell(on, warn){
+  const b=$('bell'); if(!b) return;
+  if(on){ b.classList.add('on'); b.textContent='🔔 Alerts on'; b.style.color=''; b.style.borderColor=''; }
+  else if(warn){ b.classList.remove('on'); b.textContent='⚠️ Fix alerts'; b.style.color='var(--hot1)'; b.style.borderColor='var(--hot2)'; }
+  else { b.classList.remove('on'); b.textContent='🔔 Alerts off'; b.style.color=''; b.style.borderColor=''; }
+}
 async function enableAlerts(){
   try{
     if(!('serviceWorker' in navigator)||!('PushManager' in window)){alert('This device doesn’t support alerts. On iPhone: add CLUTCH to your Home Screen, then open it from there.');return;}
     const reg=await navigator.serviceWorker.register('/sw.js');
     const perm=await Notification.requestPermission();
-    if(perm!=='granted'){alert('Alerts blocked. Enable notifications for this site in settings.');return;}
-    const {key}=await (await fetch('/api/vapidPublicKey')).json();
-    if(!key){alert('Server has no push key set yet.');return;}
-    const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToUint8(key)});
-    await fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subscription:sub,settings:expand(settings)})});
-    const bell=$('bell'); bell.classList.add('on'); bell.textContent='🔔 Alerts on';
-  }catch(e){ alert('Could not enable alerts: '+e.message); }
+    if(perm!=='granted'){alert('Alerts are blocked. On iPhone: Settings → Notifications → CLUTCH → Allow Notifications.');setBell(false);return;}
+    const ok=await ensureSubscribed(reg, true);
+    setBell(ok, !ok);
+  }catch(e){ alert('Could not enable alerts: '+e.message); setBell(false,true); }
 }
-$('bell').addEventListener('click',enableAlerts);
-(async()=>{ try{ const reg=await navigator.serviceWorker.getRegistration(); const sub=reg&&await reg.pushManager.getSubscription(); if(sub){$('bell').classList.add('on');$('bell').textContent='🔔 Alerts on';} }catch{} })();
+async function ensureSubscribed(reg, interactive){
+  try{
+    reg = reg || await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.register('/sw.js');
+    if(typeof Notification==='undefined' || Notification.permission!=='granted') return false;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub){
+      const {key}=await (await fetch('/api/vapidPublicKey')).json();
+      if(!key) return false;
+      sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:urlB64ToUint8(key)});
+    }
+    await fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subscription:sub,settings:expand(settings)})});
+    return true;
+  }catch(e){ return false; }
+}
+async function verifyAlerts(){
+  if(!('serviceWorker' in navigator)||!('PushManager' in window)){ setBell(false); return; }
+  const granted = (typeof Notification!=='undefined') && Notification.permission==='granted';
+  if(!granted){ setBell(false); return; }
+  const ok = await ensureSubscribed();
+  setBell(ok, !ok);
+}
+$('bell').addEventListener('click',()=>{
+  if($('bell').classList.contains('on')) verifyAlerts(); else enableAlerts();
+});
+verifyAlerts();
+setInterval(verifyAlerts, 180000);
 
 // native push (only inside the iOS/Android app; web skips this)
 (async () => {
