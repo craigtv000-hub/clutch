@@ -15,6 +15,27 @@ const LEAGUE_LIST = [
 ];
 const ALL_LEAGUE_KEYS = LEAGUE_LIST.map(([k]) => k);
 
+const APP_URL = "https://clutch-1.onrender.com";
+
+const AFFILIATES = {
+  // fubo: "https://www.fubo.tv/?irad=YOUR_ID",
+  // draftkings: "https://...",
+};
+function affiliateURL(name){
+  const n=(name||"").toLowerCase();
+  for(const key in AFFILIATES){ if(AFFILIATES[key] && n.includes(key)) return AFFILIATES[key]; }
+  return null;
+}
+
+function tweetText(g){
+  const line = `${g.a} ${g.as}–${g.hs} ${g.h} · ${g.situation}`;
+  const where = (g.where||[]).filter(w=>!/check listings/i.test(w)).slice(0,2).join(" / ");
+  return `🔥 TURN IT ON RIGHT NOW\n${line}${where?`\n📺 ${where}`:""}\n\nGet pinged when any game gets this good 👇\n${APP_URL}`;
+}
+function tweetHref(g){
+  return "https://twitter.com/intent/tweet?text=" + encodeURIComponent(tweetText(g));
+}
+
 const MARGIN_PRESETS = {
   tight:  { label: "Nail-biters", baseball:1, basketball:3,  hockey:1, football:3,  soccer:1 },
   normal: { label: "Close",       baseball:1, basketball:6,  hockey:1, football:8,  soccer:1 },
@@ -75,6 +96,8 @@ function heatColor(s){return s>=80?"var(--hot3)":s>=60?"var(--hot2)":s>=40?"var(
 function pillStyle(s){return s>=80?"background:rgba(255,58,58,.16);color:#ff7a7a":s>=60?"background:rgba(255,122,47,.16);color:#ffb07a":s>=40?"background:rgba(255,210,74,.14);color:#ffe08a":"background:var(--card2);color:var(--dim)";}
 
 function watchURL(name){
+  const aff = affiliateURL(name);
+  if (aff) return aff;
   const n=(name||"").toLowerCase();
   const M=[
     [/mlb\.tv|mlb network/, "https://www.mlb.com/tv"],
@@ -120,6 +143,7 @@ function liveCard(g, must){
       <div class="trow ${hLead||tie?'':'trail'}"><span class="tabbr">${g.h}</span><span class="tname">${g.hn}</span><span class="tscore">${g.hs}</span></div>
     </div>
     <div class="where"><span class="eye">▸ Watch</span><div class="nets">${nets}</div></div>
+    ${must?`<a href="${tweetHref(g)}" target="_blank" rel="noopener" style="display:block;text-align:center;padding:10px;background:rgba(29,155,240,.12);color:#4aa9f0;font-weight:800;font-size:11.5px;text-decoration:none;border-top:1px solid var(--line);letter-spacing:.3px">𝕏  Share this clutch moment</a>`:""}
   </div>`;
 }
 function upcomingCard(g){
