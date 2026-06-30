@@ -136,6 +136,15 @@ app.post("/api/settings", (req, res) => {
   res.json({ ok: false, reason: "not subscribed yet" });
 });
 
+app.get("/api/test-alert", async (req, res) => {
+  if (!PUSH_ENABLED) return res.send("PUSH DISABLED");
+  const payload = JSON.stringify({ title: "⚡ CLUTCH test", body: "Alerts are working.", url: "/" });
+  let sent = 0, failed = 0;
+  await Promise.all(subs.map((s) =>
+    webpush.sendNotification(s.subscription, payload).then(() => sent++).catch(() => failed++)
+  ));
+  res.send(`Subscribers: ${subs.length} · sent: ${sent} · failed: ${failed}`);
+});
 app.post("/api/test-alert", async (req, res) => {
   if (!PUSH_ENABLED) return res.json({ ok: false, reason: "push disabled" });
   const payload = JSON.stringify({ title: "⚡ CLUTCH test", body: "Alerts are working.", url: "/" });
